@@ -1,0 +1,149 @@
+---
+title: "Quantified Self Movement"
+author: "JeremiShane"
+date: "4/21/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, include=TRUE)
+```
+
+# Practical Machine Learning  
+
+## Summary
+The goal of this project is to predict the manner in which a test subject is performaning an exercise.  We use data from the Human Activity Recognition Project.  Once the model is built we will predict 20 out-of-sample test cases.
+
+## Background
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+# Reproducibility and Libraries
+Seed set to 13.  Libraries: dplyr, caret, rpart, and randomForest.  
+
+```{r seed, include=FALSE}
+set.seed(13)
+
+## Libraries
+library(dplyr)
+library(caret)
+library(rpart)
+library(randomForest)
+```  
+
+# Get and Clean Data
+The data for this project come from this source: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har.  
+
+```{r getdata}
+
+trainUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+## Training set provided at trainUrl and will be split later into training and validation
+trainingdf <- read.csv(url(trainUrl), na.strings=c("NA","#DIV/0!",""))
+## remove timestamp, id, non-predictive variables
+trainingdf <- trainingdf[-c(1,2,3,4,5,6,7)]
+
+## Out of Sample test data set provided at testUrl
+oosdf <- read.csv(url(testUrl), na.strings=c("NA","#DIV/0!",""))
+dim(trainingdf)
+
+## clean up variables with near zero variance
+myDataNZV <- nearZeroVar(trainingdf, saveMetrics=TRUE)
+tcols <- data.frame("columname" = colnames(trainingdf), "nzv"=myDataNZV$nzv)
+keepcols <- tcols[tcols$nzv==FALSE, ]
+cols <- keepcols$columname
+t <- trainingdf[cols]
+dim(t)
+
+## clean up variables with more than 60% NA values
+t3 <- t #creating another subset to iterate in loop
+for(i in 1:length(t)) { #for every column in the training dataset
+        if( sum( is.na( t[, i] ) ) /nrow(t) >= .6 ) { #if n?? NAs > 60% of total observations
+                for(j in 1:length(t3)) {
+                        if( length( grep(names(t[i]), names(t3)[j]) ) ==1)  { #if the columns are the same:
+                                t3 <- t3[ , -j] #Remove that column
+                        }   
+                } 
+        }
+}
+cleantraindf <- t3
+dim(cleantraindf)
+```  
+
+# Cross-Validation
+Traindf is split 60/40 into training and validation sets.  We use the test set provided as our out-of-sample test.  
+
+```{r crossvalid}
+## split using dplyr
+traindf<-sample_frac(cleantraindf, 0.6)
+sid<-as.numeric(rownames(traindf)) # because rownames() returns character
+validationdf<-cleantraindf[-sid,]
+
+cleancols <- colnames(subset(traindf, select=-classe))
+oosdf <- oosdf[cleancols]
+
+dim(traindf) ## training
+dim(validationdf) ## validation
+dim(oosdf) ## out of sample
+```  
+
+## Coerce the Data
+In order to ensure proper functioning of Decision Trees and especially RandomForest Algorithm with the Test data set (data set provided), we need to coerce the data into the same type.  
+
+```{r coerce}
+for (i in 1:length(oosdf) ) {
+        for(j in 1:length(traindf)) {
+        if( length( grep(names(traindf[i]), names(oosdf)[j]) ) ==1)  {
+            class(traindf[j]) <- class(traindf[i])
+        }      
+    }      
+}
+```  
+
+A simple test to make sure the coercian worked.
+```{r testcoerce}
+## make sure the coercian worked
+t <- traindf[cleancols]
+te <- rbind(t , oosdf)
+dim(traindf)
+dim(te)
+```  
+
+
+# ML Prediction Model: rpart Decision Tree  
+
+```{r rpartdtree}
+set.seed(13)
+dtree <- rpart(classe ~ ., data=traindf, method="class")
+## fancyRpartPlot(dtree)
+predictvalidationdtree <- predict(dtree, validationdf, type = "class")
+## Using confusion Matrix to test results:
+confusionMatrix(predictvalidationdtree, validationdf$classe)
+```  
+
+# ML Prediction Model: Random Forest
+```{r randforest}
+set.seed(13)
+randforest <- randomForest(classe ~. , data=traindf)
+## Predicting in-sample error:
+predictrandforest <- predict(randforest, validationdf, type = "class")
+## Using confusion Matrix to test results:
+confusionMatrix(predictrandforest, validationdf$classe)
+```  
+
+# Model Selection
+The performance of our random forest model is considerably higher than our decision tree at ~99% vs ~70%.  We would expect our out-of-sample test to be very good using the rand fores model, and well above 90% accurate.  
+
+# Out of Sample Test
+```{r oos}
+predictrandforestoos <- predict(randforest, oosdf, type = "class")
+predictrandforestoos
+
+```
+
+
+
+
+
+
+
